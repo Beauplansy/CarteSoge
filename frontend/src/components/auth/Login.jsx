@@ -1,10 +1,22 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { useInactivity } from '../../contexts/InactivityContext'
 import {
-  Container, Paper, TextField, Button, Typography,
-  Box, Alert, CircularProgress
+  Box,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Alert,
+  CircularProgress,
+  Chip
 } from '@mui/material'
+
+// Import du logo
+import logo from '../../assets/logo.png'
+// Background image
+import bg from '../../assets/background.jpeg'
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -15,7 +27,16 @@ const Login = () => {
   const [error, setError] = useState('')
   
   const { login } = useAuth()
+  const { resetTimer } = useInactivity() // Ajout du resetTimer
   const navigate = useNavigate()
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    // Preload background image for better UX and lazy-load
+    const img = new Image()
+    img.src = bg
+    img.onload = () => setLoaded(true)
+  }, [])
 
   const handleChange = (e) => {
     setFormData({
@@ -29,79 +50,151 @@ const Login = () => {
     setLoading(true)
     setError('')
 
-    const result = await login(formData.username, formData.password)
-    
-    if (result.success) {
-      navigate('/dashboard')
-    } else {
-      setError(result.error)
+    try {
+      const result = await login(formData.username, formData.password)
+      
+      if (result.success) {
+        resetTimer() // Reset du timer d'inactivité après connexion
+        navigate('/dashboard')
+      } else {
+        setError(result.error || 'Identifiants incorrects')
+      }
+    } catch (err) {
+      setError('Erreur de connexion')
+    } finally {
+      setLoading(false)
     }
-    
-    setLoading(false)
   }
 
   return (
-    <Container component="main" maxWidth="xs">
+    <Box
+      sx={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        margin: 0,
+        padding: 2,
+        overflow: 'hidden'
+      }}
+    >
+      {/* Background image overlay with fade-in */}
       <Box
         sx={{
-          marginTop: 8,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
+          position: 'absolute',
+          inset: 0,
+          display: loaded ? 'block' : 'none',
+          backgroundImage: `url(${bg})`,
+          backgroundSize: 'cover',
+          backgroundPosition: { xs: 'top', md: 'center' },
+          backgroundRepeat: 'no-repeat',
+          zIndex: 0,
+          '&::after': {
+            content: "''",
+            position: 'absolute',
+            inset: 0,
+            bgcolor: 'rgba(0,0,0,0.45)'
+          }
+        }}
+      />
+
+      <Paper 
+        sx={{
+          width: '100%',
+          maxWidth: 400,
+          padding: 4,
+          borderRadius: 3,
+          position: 'relative',
+          zIndex: 1
         }}
       >
-        <Paper elevation={3} sx={{ padding: 4, width: '100%' }}>
-          <Typography component="h1" variant="h4" align="center" gutterBottom>
-            SogeApp Credit
+        {/* Logo au centre au-dessus du titre */}
+        <Box sx={{ textAlign: 'center', mb: 2 }}>
+          <Box
+            component="img"
+            src={logo}
+            alt="Logo SOGEAPP CREDIT"
+            sx={{
+              width: { xs: '90px', md: '120px' },
+              height: { xs: '60px', md: '80px' },
+              objectFit: 'contain',
+              marginBottom: '16px',
+              display: 'inline-block'
+            }}
+          />
+        </Box>
+
+        <Typography
+          variant="h4"
+          align="center"
+          gutterBottom
+          sx={{ letterSpacing: '0.08em', fontWeight: 700, color: '#0b5fff' }}
+        >
+          SOGEAPP CREDIT
+        </Typography>
+        <Typography variant="h5" align="center" gutterBottom color="textSecondary" sx={{ mb: 4 }}>
+          Connexion
+        </Typography>
+        
+        {error && (
+          <Alert role="alert" aria-live="assertive" severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
+        
+        <Box component="form" onSubmit={handleSubmit}>
+          <TextField
+            fullWidth
+            label="Nom d'utilisateur"
+            name="username"
+            value={formData.username}
+            onChange={handleChange}
+            sx={{ mb: 2 }}
+            autoFocus
+            autoComplete="username"
+            inputProps={{ 'aria-label': 'Nom d\'utilisateur' }}
+          />
+          <TextField
+            fullWidth
+            label="Mot de passe"
+            name="password"
+            type="password"
+            value={formData.password}
+            onChange={handleChange}
+            sx={{ mb: 4 }}
+            autoComplete="current-password"
+            inputProps={{ 'aria-label': 'Mot de passe' }}
+          />
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            size="large"
+            disabled={loading}
+            sx={{ py: 1.5 }}
+          >
+            {loading ? <CircularProgress size={24} /> : 'SE CONNECTER'}
+          </Button>
+        </Box>
+
+        {/* Rôles disponibles */}
+        <Box sx={{ textAlign: 'center', mt: 3 }}>
+          <Typography variant="body2" color="textSecondary" gutterBottom>
+            <strong>Rôles disponibles:</strong>
           </Typography>
-          <Typography component="h2" variant="h5" align="center" gutterBottom>
-            Connexion
-          </Typography>
-          
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          
-          <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              id="username"
-              label="Nom d'utilisateur"
-              name="username"
-              autoComplete="username"
-              autoFocus
-              value={formData.username}
-              onChange={handleChange}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Mot de passe"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={formData.password}
-              onChange={handleChange}
-            />
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-              disabled={loading}
-            >
-              {loading ? <CircularProgress size={24} /> : 'Se connecter'}
-            </Button>
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Chip label="Responsable" color="error" size="small" />
+            <Chip label="Officier" color="warning" size="small" />
+            <Chip label="Secrétaire" color="success" size="small" />
           </Box>
-        </Paper>
-      </Box>
-    </Container>
+        </Box>
+      </Paper>
+    </Box>
   )
 }
 
