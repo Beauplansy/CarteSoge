@@ -44,7 +44,7 @@ const CreateApplication = () => {
   })
 
   useEffect(() => {
-    if (user?.role === 'secretary') {
+    if (user?.role === 'secretary' || user?.role === 'manager') {
       loadOfficers()
     }
   }, [user])
@@ -119,8 +119,23 @@ const CreateApplication = () => {
     const { name, value } = e.target
     let processedValue = value
     
-    // Conversion automatique en majuscules (sauf email)
-    if (name !== 'email_client' && typeof value === 'string') {
+    // Liste EXPLICITE des champs à convertir en majuscules
+    const upperCaseFields = [
+      'nom_off_groupe',
+      'prenom_off_groupe', 
+      'no_succursale',
+      'autre_succursale',
+      'nom_client',
+      'prenom_client',
+      'cin',
+      'adresse_client',
+      'telephone_client',
+      'commentaire',
+      'type_campagne'
+    ]
+    
+    // Conversion automatique en majuscules seulement pour les champs spécifiés
+    if (upperCaseFields.includes(name) && typeof value === 'string') {
       processedValue = value.toUpperCase()
     }
     
@@ -166,6 +181,24 @@ const CreateApplication = () => {
         finalErrors.date_naissance = 'Le client doit avoir au moins 10 ans'
       }
     }
+
+    // Validation des champs Select requis
+    if (!formData.type_dossier) {
+      finalErrors.type_dossier = 'Le type de dossier est requis'
+    }
+    
+    if (!formData.type_carte_application) {
+      finalErrors.type_carte_application = 'Le type de carte est requis'
+    }
+    
+    if (!formData.succursale) {
+      finalErrors.succursale = 'La succursale est requise'
+    }
+
+    // Validation pour les campagnes
+    if (formData.type_dossier === 'campagne' && !formData.type_campagne) {
+      finalErrors.type_campagne = 'Le type de campagne est requis'
+    }
     
     if (Object.keys(finalErrors).length > 0) {
       setFieldErrors(finalErrors)
@@ -181,6 +214,8 @@ const CreateApplication = () => {
         date_fin_campagne: formData.date_fin_campagne ? formData.date_fin_campagne.toISOString().split('T')[0] : null,
         montant_genere: parseFloat(formData.montant_genere) || 0
       }
+
+      console.log('📤 Données envoyées:', submitData)
 
       await applicationAPI.createApplication(submitData)
       setSuccess('Dossier créé avec succès!')
@@ -274,7 +309,7 @@ const CreateApplication = () => {
             </Typography>
             <Grid container spacing={3}>
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
+                <FormControl fullWidth required error={!!fieldErrors.succursale}>
                   <InputLabel>Succursale/Filiale</InputLabel>
                   <Select
                     name="succursale"
@@ -288,6 +323,9 @@ const CreateApplication = () => {
                       </MenuItem>
                     ))}
                   </Select>
+                  {fieldErrors.succursale && (
+                    <FormHelperText error>{fieldErrors.succursale}</FormHelperText>
+                  )}
                 </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -416,7 +454,7 @@ const CreateApplication = () => {
             </Typography>
             <Grid container spacing={3}>
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
+                <FormControl fullWidth required error={!!fieldErrors.type_dossier}>
                   <InputLabel>Type de Dossier</InputLabel>
                   <Select
                     name="type_dossier"
@@ -430,10 +468,13 @@ const CreateApplication = () => {
                       </MenuItem>
                     ))}
                   </Select>
+                  {fieldErrors.type_dossier && (
+                    <FormHelperText error>{fieldErrors.type_dossier}</FormHelperText>
+                  )}
                 </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <FormControl fullWidth required>
+                <FormControl fullWidth required error={!!fieldErrors.type_carte_application}>
                   <InputLabel>Type de Carte</InputLabel>
                   <Select
                     name="type_carte_application"
@@ -447,6 +488,9 @@ const CreateApplication = () => {
                       </MenuItem>
                     ))}
                   </Select>
+                  {fieldErrors.type_carte_application && (
+                    <FormHelperText error>{fieldErrors.type_carte_application}</FormHelperText>
+                  )}
                 </FormControl>
               </Grid>
               
@@ -460,6 +504,8 @@ const CreateApplication = () => {
                       name="type_campagne"
                       value={formData.type_campagne}
                       onChange={handleChange}
+                      error={!!fieldErrors.type_campagne}
+                      helperText={fieldErrors.type_campagne}
                       inputProps={{ style: { textTransform: 'uppercase' } }}
                     />
                   </Grid>

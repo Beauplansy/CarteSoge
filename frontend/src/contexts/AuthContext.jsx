@@ -16,13 +16,32 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  // Vérifier la validité du token
+  const checkTokenValidity = () => {
+    const token = localStorage.getItem('accessToken')
+    if (!token) return false
+    
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const expirationTime = payload.exp * 1000 // Convertir en millisecondes
+      return Date.now() < expirationTime
+    } catch (error) {
+      return false
+    }
+  }
+
   useEffect(() => {
     const token = localStorage.getItem('accessToken')
     const userData = localStorage.getItem('userData')
     
-    if (token && userData) {
+    if (token && userData && checkTokenValidity()) {
       setUser(JSON.parse(userData))
       setIsAuthenticated(true)
+    } else {
+      // Token expiré ou invalide
+      localStorage.removeItem('accessToken')
+      localStorage.removeItem('refreshToken')
+      localStorage.removeItem('userData')
     }
     setLoading(false)
   }, [])
@@ -104,7 +123,7 @@ export const AuthProvider = ({ children }) => {
         'view_applications',
         'create_application',
         'update_application',
-        'modify_client_info',  // Nouvelle permission pour modifier les infos client
+        'modify_client_info',
         'delete_application',
         'assign_officer',
         'manage_users',
@@ -124,7 +143,8 @@ export const AuthProvider = ({ children }) => {
     logout,
     updateProfile,
     hasPermission,
-    can
+    can,
+    checkTokenValidity // Ajout de la fonction
   }
 
   return (

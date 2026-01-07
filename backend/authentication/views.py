@@ -10,14 +10,19 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 import pandas as pd
 import json
+import csv
+import codecs
 
 from .models import User, CreditApplication, ApplicationHistory, Notification
+import logging
+
+logger = logging.getLogger(__name__)
 from .serializers import (
     UserSerializer, UserCreateSerializer, LoginSerializer,
     CreditApplicationSerializer, ApplicationHistorySerializer,
     NotificationSerializer, ReportSerializer
 )
-from .permissions import IsManager, IsOfficer, IsSecretary, IsManagerOrOfficer, CanModifyApplication
+from .permissions import IsManager, IsOfficer, IsSecretary, IsManagerOrOfficer, IsManagerOrSecretary, CanModifyApplication
 
 class AuthViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
@@ -106,7 +111,8 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create']:
-            permission_classes = [IsAuthenticated, IsSecretary]
+            # Secrétaires ET managers peuvent créer des dossiers
+            permission_classes = [IsAuthenticated, IsManagerOrSecretary]
         elif self.action in ['update', 'partial_update']:
             # Utiliser la permission personnalisée pour la modification
             permission_classes = [IsAuthenticated, CanModifyApplication]
@@ -123,13 +129,9 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
         queryset = CreditApplication.objects.all()
         
         # Filtres selon le rôle
-        if user.role == 'secretary':
-            # Secrétaires voient les dossiers qu'ils ont créés
-            queryset = queryset.filter(created_by=user)
-        elif user.role == 'officer':
-            # Officiers voient les dossiers qui leur sont assignés
-            queryset = queryset.filter(officer_credit=user)
-        # Managers voient tous les dossiers
+        # Managers, secrétaires et officiers voient TOUS les dossiers
+        # (Secrétaires et officiers peuvent consulter l'ensemble du système)
+        # Pas de filtrage par créateur ou assignation
         
         # Filtres de recherche
         search = self.request.query_params.get('search', None)
@@ -172,7 +174,7 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
         application = self.get_object()
         user = self.request.user
         
-        print(f"🔄 Modification - User: {user.username} ({user.role}), Dossier: {application.id}, Officier: {application.officer_credit}")
+        logger.info(f"Modification - User: {user.username} ({user.role}), Dossier: {application.id}, Officier: {application.officer_credit}")
         
         # Sauvegarder l'ancienne instance pour comparer les changements
         old_instance = CreditApplication.objects.get(id=application.id)
@@ -211,15 +213,14 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
                 action="Modification du dossier",
                 details=" | ".join(changes)
             )
-            
-            print(f"📝 Historique créé: {changes}")
+            logger.info("Historique créé: %s", changes)
     
     @action(detail=True, methods=['post'])
     def assign_officer(self, request, pk=None):
         application = self.get_object()
         officer_id = request.data.get('officer_id')
         
-        print(f"🔧 Assignation - Dossier: {application.id}, Officier: {officer_id}, User: {request.user.username}")
+        logger.info(f"Assignation - Dossier: {application.id}, Officier: {officer_id}, User: {request.user.username}")
         
         # Vérifier que officer_id est fourni
         if not officer_id:
@@ -250,7 +251,18 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
             officer_id_int = int(officer_id)
             officer = User.objects.get(id=officer_id_int, role='officer', is_active=True)
             
-            # Vérifier que l'officier n'est pas déjà assigné
+            # Vérifier si réaffectation (changement d'officier)
+            old_officer = application.officer_credit
+            is_reassignment = old_officer is not None and old_officer != officer
+            
+            # Managers peuvent réaffecter; autres seulement assigner pour la première fois
+            if is_reassignment and user.role != 'manager':
+                return Response(
+                    {'error': 'Seuls les managers peuvent réaffecter un dossier à un autre officier'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Si déjà assigné au même officier, pas de changement
             if application.officer_credit == officer:
                 return Response(
                     {'error': 'Cet officier est déjà assigné à ce dossier'},
@@ -260,26 +272,45 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
             application.officer_credit = officer
             application.save()
             
-            # Créer l'historique
+            # Créer l'historique avec action spécifique
+            if is_reassignment:
+                action_desc = "Réaffectation d'officier"
+                details = f"Dossier réaffecté de {old_officer.get_full_name()} à {officer.get_full_name()} par {request.user.get_full_name()}"
+            else:
+                action_desc = "Assignation d'officier"
+                details = f"Dossier assigné à {officer.get_full_name()} par {request.user.get_full_name()}"
+            
             ApplicationHistory.objects.create(
                 application=application,
                 user=request.user,
-                action="Assignation d'officier",
-                details=f"Dossier assigné à {officer.get_full_name()} par {request.user.get_full_name()}"
+                action=action_desc,
+                details=details
             )
             
-            # Notification
+            # Notification au nouvel officier
+            message_prefix = "réaffecté" if is_reassignment else "assigné"
             Notification.objects.create(
                 user=officer,
                 title="Nouveau dossier assigné",
-                message=f"Le dossier {application.application_id} ({application.nom_client} {application.prenom_client}) vous a été assigné par {request.user.get_full_name()}",
+                message=f"Le dossier {application.application_id} ({application.nom_client} {application.prenom_client}) vous a été {message_prefix} par {request.user.get_full_name()}",
                 application=application
             )
             
+            # Notification à l'ancien officier (si réaffectation)
+            if is_reassignment:
+                Notification.objects.create(
+                    user=old_officer,
+                    title="Dossier réaffecté",
+                    message=f"Le dossier {application.application_id} ({application.nom_client} {application.prenom_client}) vous a été retiré et réaffecté à {officer.get_full_name()}",
+                    application=application
+                )
+            
+            message_type = "réaffecter" if is_reassignment else "assigner"
             return Response({
-                'message': f'Officier {officer.get_full_name()} assigné avec succès',
+                'message': f'Officier {officer.get_full_name()} {message_type} avec succès',
                 'officer_name': officer.get_full_name(),
-                'officer_id': officer.id
+                'officer_id': officer.id,
+                'is_reassignment': is_reassignment
             })
             
         except ValueError:
@@ -293,7 +324,7 @@ class CreditApplicationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
-            print(f"❌ Erreur lors de l'assignation: {str(e)}")
+            logger.exception("Erreur lors de l'assignation: %s", str(e))
             return Response(
                 {'error': f'Erreur serveur: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -336,12 +367,16 @@ class ReportViewSet(viewsets.ViewSet):
                 queryset = queryset.filter(succursale=data['succursale'])
             if data.get('type_application'):
                 queryset = queryset.filter(type_dossier=data['type_application'])
-            if data.get('statut'):
+            
+            # Gestion spéciale pour le statut "recues" (tous les statuts)
+            if data.get('statut') and data.get('statut') != 'recues':
                 queryset = queryset.filter(statut=data['statut'])
+            # Si statut est "recues" ou vide, on prend tous les statuts
+            
             if data.get('officer'):
                 queryset = queryset.filter(officer_credit_id=data['officer'])
             
-            # Statistiques
+            # Statistiques globales
             stats = {
                 'total': queryset.count(),
                 'en_attente': queryset.filter(statut='en_attente').count(),
@@ -350,16 +385,126 @@ class ReportViewSet(viewsets.ViewSet):
                 'montant_total': queryset.aggregate(Sum('montant_genere'))['montant_genere__sum'] or 0,
             }
             
-            applications_data = CreditApplicationSerializer(queryset, many=True).data
+            # CALCUL DES STATISTIQUES DÉTAILLÉES PAR SUCCURSALE
+            succursale_stats = {}
+            for application in queryset:
+                succursale = application.get_succursale_display()
+                
+                if succursale not in succursale_stats:
+                    succursale_stats[succursale] = {
+                        'total': 0,
+                        'en_attente': 0,
+                        'approuve': 0,
+                        'rejete': 0
+                    }
+                
+                # Incrémenter les compteurs
+                succursale_stats[succursale]['total'] += 1
+                succursale_stats[succursale][application.statut] += 1
+            
+            # Déterminer le type de rapport basé sur le statut sélectionné
+            report_type = "RECUES" if data.get('statut') == 'recues' or not data.get('statut') else data.get('statut', '').upper()
             
             return Response({
                 'statistiques': stats,
-                'applications': applications_data,
+                'succursale_stats': succursale_stats,  # NOUVEAU: statistiques détaillées
+                'report_type': report_type,  # Type de rapport pour l'affichage
                 'periode': {
                     'debut': data['date_debut'],
                     'fin': data['date_fin']
+                },
+                'filtres_appliques': {
+                    'statut': data.get('statut', ''),
+                    'type_application': data.get('type_application', ''),
+                    'succursale': data.get('succursale', '')
                 }
             })
+        return Response(serializer.errors, status=400)
+    
+    # Export CSV avec meilleur encodage
+    @action(detail=False, methods=['post'])
+    def export_csv(self, request):
+        serializer = ReportSerializer(data=request.data)
+        if serializer.is_valid():
+            data = serializer.validated_data
+            
+            # Filtrer les applications (même logique que generate_report)
+            queryset = CreditApplication.objects.filter(
+                date_saisie__date__range=[data['date_debut'], data['date_fin']]
+            )
+            
+            if data.get('succursale'):
+                queryset = queryset.filter(succursale=data['succursale'])
+            if data.get('type_application'):
+                queryset = queryset.filter(type_dossier=data['type_application'])
+            
+            # Gestion spéciale pour le statut "recues"
+            if data.get('statut') and data.get('statut') != 'recues':
+                queryset = queryset.filter(statut=data['statut'])
+            
+            if data.get('officer'):
+                queryset = queryset.filter(officer_credit_id=data['officer'])
+            
+            # Calcul des statistiques détaillées par succursale
+            succursale_stats = {}
+            for application in queryset:
+                succursale = application.get_succursale_display()
+                
+                if succursale not in succursale_stats:
+                    succursale_stats[succursale] = {
+                        'total': 0,
+                        'en_attente': 0,
+                        'approuve': 0,
+                        'rejete': 0
+                    }
+                
+                succursale_stats[succursale]['total'] += 1
+                succursale_stats[succursale][application.statut] += 1
+            
+            # Préparer la réponse CSV avec bon encodage
+            response = HttpResponse(content_type='text/csv; charset=utf-8-sig')  # charset utf-8-sig pour Excel
+            filename = f"rapport_{data['date_debut']}_{data['date_fin']}.csv"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            # Écrire le contenu CSV manuellement pour mieux contrôler l'encodage
+            content = []
+            
+            # DÉTERMINER LE TITRE SELON LE STATUT
+            report_title = "APPLICATIONS RECUES"
+            if data.get('statut') == 'en_attente':
+                report_title = "APPLICATIONS EN ATTENTE"
+            elif data.get('statut') == 'approuve':
+                report_title = "APPLICATIONS APPROUVEES"
+            elif data.get('statut') == 'rejete':
+                report_title = "APPLICATIONS REJETEES"
+            
+            content.append(report_title)
+            content.append(f"Du: {data['date_debut']} Au: {data['date_fin']}")
+            content.append("")
+            content.append("STATISTIQUES GLOBALES PAR SUCCURSALE")
+            content.append("")
+            content.append("Succursale,Total,Rejetées,En attente,Traitées")
+            
+            # Données des succursales
+            for succursale, stats in succursale_stats.items():
+                traitees = stats['approuve']  # Traitées = approuvées
+                line = f"{succursale.upper()},{stats['total']},{stats['rejete']},{stats['en_attente']},{traitees}"
+                content.append(line)
+            
+            # Total général
+            total_global = queryset.count()
+            total_rejete = queryset.filter(statut='rejete').count()
+            total_attente = queryset.filter(statut='en_attente').count()
+            total_traite = queryset.filter(statut='approuve').count()
+            
+            content.append("")
+            content.append(f"TOTAL GENERAL,{total_global},{total_rejete},{total_attente},{total_traite}")
+            
+            # Écrire le contenu avec encodage UTF-8 avec BOM
+            response.write(codecs.BOM_UTF8)
+            response.write("\n".join(content))
+            
+            return response
         return Response(serializer.errors, status=400)
 
 @api_view(['GET'])

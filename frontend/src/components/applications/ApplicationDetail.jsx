@@ -374,6 +374,20 @@ const ApplicationDetail = () => {
                 Assigner un officier
               </Button>
             )}
+
+            {canAssign && application.officer_credit && user?.role === 'manager' && (
+              <Button
+                startIcon={<AssignmentIcon />}
+                onClick={() => {
+                  setSelectedOfficer(application.officer_credit.id)
+                  setAssignDialog(true)
+                }}
+                variant="outlined"
+                color="warning"
+              >
+                Réaffecter officier
+              </Button>
+            )}
             
             {canModifyClient && !clientEditMode && (
               <Button
@@ -890,10 +904,22 @@ const ApplicationDetail = () => {
         )}
       </Grid>
 
-      {/* Dialog d'assignation */}
+      {/* Dialog d'assignation/Réaffectation */}
       <Dialog open={assignDialog} onClose={() => setAssignDialog(false)}>
-        <DialogTitle>Assigner un officier</DialogTitle>
+        <DialogTitle>
+          {application?.officer_credit ? 'Réaffecter un officier' : 'Assigner un officier'}
+        </DialogTitle>
         <DialogContent>
+          {application?.officer_credit && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+              <Typography variant="caption" color="textSecondary">
+                Officier actuel :
+              </Typography>
+              <Typography variant="body2" sx={{ textTransform: 'uppercase', fontWeight: 'bold' }}>
+                {application.officer_credit.first_name} {application.officer_credit.last_name}
+              </Typography>
+            </Box>
+          )}
           <FormControl fullWidth sx={{ mt: 1 }}>
             <InputLabel>Officier de crédit</InputLabel>
             <Select
@@ -912,13 +938,18 @@ const ApplicationDetail = () => {
           </FormControl>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAssignDialog(false)}>Annuler</Button>
+          <Button onClick={() => {
+            setAssignDialog(false)
+            setSelectedOfficer('')
+          }}>
+            Annuler
+          </Button>
           <Button 
             onClick={handleAssignOfficer} 
             variant="contained"
             disabled={!selectedOfficer}
           >
-            Assigner
+            {application?.officer_credit ? 'Réaffecter' : 'Assigner'}
           </Button>
         </DialogActions>
       </Dialog>

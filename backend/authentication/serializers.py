@@ -177,3 +177,9 @@ class ReportSerializer(serializers.Serializer):
     type_application = serializers.CharField(required=False, allow_blank=True)
     statut = serializers.CharField(required=False, allow_blank=True)
     officer = serializers.IntegerField(required=False)
+
+    def validate_officer(self, value):
+        """Validation personnalisée pour le champ officer"""
+        if value == '' or value is None:
+            return None
+        return value
