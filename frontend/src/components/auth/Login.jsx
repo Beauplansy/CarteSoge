@@ -15,8 +15,8 @@ import {
 
 // Import du logo
 import logo from '../../assets/logo.png'
-// Background image
-import bg from '../../assets/background.jpeg'
+// Background image (nom exact du fichier)
+import bg from '../../assets/Background.jpeg'
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -69,18 +69,15 @@ const Login = () => {
   return (
     <Box
       sx={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         margin: 0,
         padding: 2,
-        overflow: 'hidden'
+        overflow: 'auto',
+        position: 'relative'
       }}
     >
       {/* Background image overlay with fade-in */}
@@ -107,10 +104,11 @@ const Login = () => {
         sx={{
           width: '100%',
           maxWidth: 400,
-          padding: 4,
+          p: { xs: 3, sm: 4 },
           borderRadius: 3,
           position: 'relative',
-          zIndex: 1
+          zIndex: 1,
+          boxSizing: 'border-box'
         }}
       >
         {/* Logo au centre au-dessus du titre */}

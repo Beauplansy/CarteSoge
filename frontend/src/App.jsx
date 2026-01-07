@@ -10,6 +10,7 @@ import Login from './components/auth/Login'
 import ChangePassword from './components/auth/ChangePassword'
 import Dashboard from './components/dashboard/Dashboard'
 import UserManagement from './components/admin/UserManagement'
+import AuditLog from './components/admin/AuditLog'
 import ApplicationList from './components/applications/ApplicationList'
 import CreateApplication from './components/applications/CreateApplication'
 import ApplicationDetail from './components/applications/ApplicationDetail'
@@ -58,6 +59,11 @@ function AppContent() {
             <Route path="reports" element={
               <ProtectedRoute requiredRole="manager">
                 <Reports />
+              </ProtectedRoute>
+            } />
+            <Route path="audit" element={
+              <ProtectedRoute requiredRole="manager">
+                <AuditLog />
               </ProtectedRoute>
             } />
           </Route>

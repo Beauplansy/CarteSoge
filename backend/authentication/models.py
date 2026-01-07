@@ -192,3 +192,47 @@ class Notification(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+
+class AuditLog(models.Model):
+    """Modèle global pour tracer toutes les actions du système"""
+    ACTION_TYPES = [
+        ('login', 'Connexion'),
+        ('logout', 'Déconnexion'),
+        ('create_app', 'Création Dossier'),
+        ('update_app', 'Modification Dossier'),
+        ('delete_app', 'Suppression Dossier'),
+        ('assign_officer', 'Assignation Officier'),
+        ('generate_report', 'Génération Rapport'),
+        ('export_data', 'Export Données'),
+        ('create_user', 'Création Utilisateur'),
+        ('update_user', 'Modification Utilisateur'),
+        ('delete_user', 'Suppression Utilisateur'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('success', 'Succès'),
+        ('failed', 'Échoué'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='audit_logs')
+    action = models.CharField(max_length=20, choices=ACTION_TYPES)
+    resource_type = models.CharField(max_length=50, blank=True, help_text="Type de ressource (CreditApplication, User, Report, etc)")
+    resource_id = models.CharField(max_length=100, blank=True, help_text="ID de la ressource affectée")
+    resource_display = models.CharField(max_length=200, blank=True, help_text="Affichage lisible de la ressource")
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=500, blank=True)
+    changes = models.JSONField(default=dict, blank=True, help_text="Détails des changements en JSON")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='success')
+    error_message = models.TextField(blank=True, help_text="Message d'erreur en cas d'échec")
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['user', 'timestamp']),
+            models.Index(fields=['action', 'timestamp']),
+            models.Index(fields=['timestamp']),
+        ]
+    
+    def __str__(self):
+        return f"{self.get_action_display()} by {self.user.username} at {self.timestamp}"

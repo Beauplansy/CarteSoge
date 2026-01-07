@@ -8,6 +8,7 @@ router.register(r'users', views.UserViewSet, basename='users')
 router.register(r'applications', views.CreditApplicationViewSet, basename='applications')
 router.register(r'notifications', views.NotificationViewSet, basename='notifications')
 router.register(r'reports', views.ReportViewSet, basename='reports')
+router.register(r'audit_logs', views.AuditLogViewSet, basename='audit_logs')
 
 urlpatterns = [
     # Routes API DRF

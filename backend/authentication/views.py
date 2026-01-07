@@ -13,16 +13,17 @@ import json
 import csv
 import codecs
 
-from .models import User, CreditApplication, ApplicationHistory, Notification
+from .models import User, CreditApplication, ApplicationHistory, Notification, AuditLog
 import logging
 
 logger = logging.getLogger(__name__)
 from .serializers import (
     UserSerializer, UserCreateSerializer, LoginSerializer,
     CreditApplicationSerializer, ApplicationHistorySerializer,
-    NotificationSerializer, ReportSerializer
+    NotificationSerializer, ReportSerializer, AuditLogSerializer
 )
 from .permissions import IsManager, IsOfficer, IsSecretary, IsManagerOrOfficer, IsManagerOrSecretary, CanModifyApplication
+from .audit_utils import log_audit, log_login_audit, log_login_failed_audit, log_logout_audit, get_client_ip
 
 class AuthViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
@@ -38,11 +39,19 @@ class AuthViewSet(viewsets.ViewSet):
             user.last_login = timezone.now()
             user.save()
             
+            # Enregistrer l'audit de connexion réussie
+            log_login_audit(request, user)
+            
             return Response({
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
                 'user': UserSerializer(user).data
             })
+        else:
+            # Enregistrer l'audit de connexion échouée
+            username = request.data.get('username', 'unknown')
+            log_login_failed_audit(request, username)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
@@ -549,3 +558,73 @@ def dashboard_stats(request):
         'recent_applications': recent_applications,
         'total_users': total_users,
     })
+
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet pour consulter les logs d'audit - Managers only"""
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAuthenticated, IsManager]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['user', 'action', 'resource_type', 'status']
+    
+    def get_queryset(self):
+        """Les managers voient tous les logs, les autres ne voient que leurs logs"""
+        user = self.request.user
+        if user.role == 'manager':
+            return AuditLog.objects.all().select_related('user').order_by('-timestamp')
+        else:
+            # Les non-managers ne peuvent voir que leurs propres logs
+            return AuditLog.objects.filter(user=user).select_related('user').order_by('-timestamp')
+    
+    @action(detail=False, methods=['get'])
+    def recent(self, request):
+        """Récupère les activités récentes (dernières 24h) - Manager only"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        if request.user.role != 'manager':
+            return Response({'error': 'Seuls les managers peuvent voir ces données'}, 
+                          status=status.HTTP_403_FORBIDDEN)
+        
+        last_24h = timezone.now() - timedelta(hours=24)
+        recent_logs = AuditLog.objects.filter(timestamp__gte=last_24h).select_related('user').order_by('-timestamp')[:20]
+        
+        serializer = self.get_serializer(recent_logs, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Statistiques d'audit"""
+        if request.user.role != 'manager':
+            return Response({'error': 'Seuls les managers peuvent voir ces données'}, 
+                          status=status.HTTP_403_FORBIDDEN)
+        try:
+            from django.db.models import Count
+            from django.utils import timezone
+            from datetime import timedelta
+
+            today = timezone.now().date()
+            last_7_days = timezone.now() - timedelta(days=7)
+
+            stats_data = {
+                'total_logs': AuditLog.objects.count(),
+                'logs_today': AuditLog.objects.filter(timestamp__date=today).count(),
+                'logs_last_7_days': AuditLog.objects.filter(timestamp__gte=last_7_days).count(),
+                'failed_actions': AuditLog.objects.filter(status='failed').count(),
+                'actions_by_type': dict(
+                    AuditLog.objects.values('action').annotate(count=Count('id')).order_by().values_list('action', 'count')
+                ),
+                'actions_by_user': [],
+                'logins_today': list(
+                    AuditLog.objects.filter(
+                        action='login', 
+                        timestamp__date=today,
+                        status='success'
+                    ).values('user__username').annotate(count=Count('id')).order_by().values('user__username', 'count')
+                ),
+            }
+
+            return Response(stats_data)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            return Response({'error': str(e), 'traceback': tb}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

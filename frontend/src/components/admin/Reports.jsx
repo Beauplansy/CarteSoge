@@ -512,15 +512,16 @@ const Reports = () => {
       <Paper 
         id="report-content"
         sx={{ 
-          p: 4, 
+          p: { xs: 2, sm: 4 }, 
           mt: 3, 
           fontFamily: 'Arial, sans-serif',
-          maxWidth: 900,
+          maxWidth: { xs: '100%', md: 900 },
           mx: 'auto',
           boxShadow: 3,
           border: '2px solid #333',
           position: 'relative',
           backgroundColor: 'white',
+          boxSizing: 'border-box',
           '@media print': {
             boxShadow: 'none',
             border: 'none',

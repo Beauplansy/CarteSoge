@@ -11,6 +11,7 @@ import {
   Assignment as ApplicationIcon,
   Person as UserIcon,
   Assessment as ReportIcon,
+  Summarize as AssessmentIcon,
   AccountCircle as ProfileIcon,
   Logout as LogoutIcon,
   Menu as MenuIcon
@@ -72,14 +73,16 @@ const Layout = () => {
   // Ajouter les éléments de menu admin seulement si l'utilisateur a les permissions
   if (can('manage_users')) {
     menuItems.push(
-      { text: 'Gestion Utilisateurs', icon: <UserIcon />, path: '/admin/users', permission: 'manage_users' }
+      { text: 'Gestion Utilisateurs', icon: <UserIcon />, path: '/admin/users', permission: 'manage_users' },
+      { text: 'Rapports', icon: <ReportIcon />, path: '/admin/reports', permission: 'view_reports' },
+      { text: 'Audit', icon: <AssessmentIcon />, path: '/admin/audit', permission: 'manage_users' }
     )
-  }
-
-  if (can('view_reports')) {
-    menuItems.push(
-      { text: 'Rapports', icon: <ReportIcon />, path: '/admin/reports', permission: 'view_reports' }
-    )
+  } else {
+    if (can('view_reports')) {
+      menuItems.push(
+        { text: 'Rapports', icon: <ReportIcon />, path: '/admin/reports', permission: 'view_reports' }
+      )
+    }
   }
 
   // Filtrer les éléments de menu selon les permissions

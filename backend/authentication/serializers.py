@@ -3,7 +3,7 @@ from django.contrib.auth import authenticate
 from django.utils import timezone
 from datetime import timedelta
 import re
-from .models import User, CreditApplication, ApplicationHistory, Notification
+from .models import User, CreditApplication, ApplicationHistory, Notification, AuditLog
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -183,3 +183,15 @@ class ReportSerializer(serializers.Serializer):
         if value == '' or value is None:
             return None
         return value
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    
+    class Meta:
+        model = AuditLog
+        fields = ('id', 'user', 'user_name', 'action', 'action_display', 'resource_type', 
+                 'resource_id', 'resource_display', 'ip_address', 'status', 'status_display',
+                 'changes', 'error_message', 'timestamp')
+        read_only_fields = ('id', 'timestamp')
